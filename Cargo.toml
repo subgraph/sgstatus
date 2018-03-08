@@ -1,0 +1,13 @@
+[package]
+name = "sgstatus"
+version = "0.1.0"
+authors = ["David McKinney <mckinney@subgraph.com>"]
+
+[dependencies]
+dbus = "0.6.1"
+dbus-tokio = "0.2.1"
+futures = "0.1.18"
+tokio-core = "0.1.12"
+tokio-timer = "0.1.2"
+log = "0.4.0"
+env_logger = "0.5.3"
