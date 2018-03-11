@@ -4,10 +4,11 @@ Status monitor for Sway's status bar (`swaybar`).
 
 ## Features
 
-sgstatus monitors `dbus` interfaces to send status updates when the state or
-properties of the monitored interfaces changes. This is in contrast with other
-tiling window manager status tools, which usually monitor at pre-determined  
-intervals, ex: checking if the volume has changed every 5 seconds, etc.
+sgstatus monitors `dbus` and `pulseaudio` to send status updates when the state 
+or properties of the monitored interfaces changes. This is in contrast with 
+other tiling window manager status tools, which usually monitor at 
+pre-determined intervals, ex: checking if the volume has changed every 5 
+seconds, etc.
 
 sgstatus also (partially) implements the `StatusNotifierItem` protocol so that
 it can send icons to the status bar.
@@ -16,6 +17,7 @@ It currently monitors the following:
 
 * Battery level
 * Network connectivity
+* Volume (EXPERIMENTAL)
 
 ## Disclaimer
 
