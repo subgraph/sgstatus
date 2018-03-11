@@ -71,7 +71,7 @@ impl<'a, C: ::std::ops::Deref<Target=dbus::Connection>> OrgKdeStatusNotifierItem
     }
 
     fn get_icon_pix_map(&self) -> Result<Vec<(i32, i32, Vec<u8>)>, Self::Err> {
-        <Self as dbus::stdintf::org_freedesktop_dbus::Properties>::get(&self, "org.kde.StatusNotifierItem", "IconPixMap")
+        <Self as dbus::stdintf::org_freedesktop_dbus::Properties>::get(&self, "org.kde.StatusNotifierItem", "IconPixmap")
     }
 
     fn get_attention_icon_name(&self) -> Result<String, Self::Err> {
@@ -190,7 +190,7 @@ where
     });
     let i = i.add_p(p);
 
-    let p = factory.property::<Vec<(i32, i32, Vec<u8>)>, _>("IconPixMap", Default::default());
+    let p = factory.property::<Vec<(i32, i32, Vec<u8>)>, _>("IconPixmap", Default::default());
     let p = p.access(tree::Access::Read);
     let fclone = f.clone();
     let p = p.on_get(move |a, pinfo| {
