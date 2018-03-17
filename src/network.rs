@@ -1,6 +1,7 @@
 use dbus::Connection;
 use dbus::BusType;
 use dbus::arg::RefArg;
+use dbus::Error;
 
 use network_manager::OrgFreedesktopDBusProperties;
 
@@ -8,6 +9,7 @@ use std::rc::Rc;
 use tokio_core::reactor::Core;
 use futures::{Stream};
 use dbus_tokio::AConnection;
+
 use std::sync::mpsc::{Sender};
 
 // NMState:
@@ -27,10 +29,16 @@ pub struct NetworkMonitor {
 
 
 impl NetworkMonitor {
-    pub fn new() -> NetworkMonitor {
-        let c = Rc::new(Connection::get_private(BusType::System).unwrap());
-        NetworkMonitor {
-            conn: c
+    pub fn new() -> Result<NetworkMonitor, Error> {
+        match Connection::get_private(BusType::System) {
+            Ok(c) => {
+                Ok(NetworkMonitor {
+                    conn: Rc::new(c)
+                })
+            },
+            Err(err) => {
+                Err(err)
+            }
         }
     }
 
@@ -56,10 +64,14 @@ impl NetworkMonitor {
             5000);
         if let Ok(variant) = c_path.get("org.freedesktop.NetworkManager", 
             "PrimaryConnectionType") {
-            let variant = String::from(variant.as_str().unwrap());
-                return Some(variant)
+            if let Some(variant_str) = variant.as_str() {
+                return Some(String::from(variant_str));
             } else {
                 return None
+            }
+        } else {
+            error!("Could not get network connection type");
+            return None
         }
     }
 
@@ -124,20 +136,25 @@ impl NetworkMonitor {
     }
 
     pub fn run(&self, out_chan: Sender<String>) {
-        self.conn.add_match(
-            "type=signal,sender=org.freedesktop.NetworkManager,path=/org/freedesktop/NetworkManager,member=StateChanged").unwrap();
+        if let Err(err) = self.conn.add_match(
+            "type=signal,sender=org.freedesktop.NetworkManager,path=/org/freedesktop/NetworkManager,member=StateChanged")
+        {
+                error!("Network monitor could not add dbus match: {:?}", err);
+                return
+        }
         let mut core = Core::new().unwrap();
         let aconn = AConnection::new(self.conn.clone(), core.handle()).unwrap();
         let messages = aconn.messages().unwrap();
         let signals = messages.for_each(|m| {
             info!("Incoming signal: {:?}", m);
             let headers = m.headers();
-            let member = headers.3.unwrap();
-            if member == "StateChanged" {
-                let icon = self.update_status();
-                match out_chan.send(icon.clone()) {
-                    Ok(_) => info!("Sent network icon: {}", icon),
-                    Err(err) => error!("Could not send network icon: {} - {}", icon, err)
+            if let Some(member) = headers.3 {
+                if member == "StateChanged" {
+                    let icon = self.update_status();
+                    match out_chan.send(icon.clone()) {
+                        Ok(_) => info!("Sent network icon: {}", icon),
+                        Err(err) => error!("Could not send network icon: {} - {}", icon, err)
+                    }
                 }
             }
             Ok(())
@@ -147,12 +164,18 @@ impl NetworkMonitor {
 }
 
 pub fn monitor_network<'a>(out_chan: Sender<String>) {
-    let monitor = NetworkMonitor::new();
-    info!("Starting network monitor");
-    let icon = monitor.update_status();
-    match out_chan.send(icon.clone()) {
-        Ok(_) => info!("Sent initial network icon: {}", icon.clone()),
-        Err(err) => error!("Could not send network initial icon: {} - {}", icon, err)
+    match NetworkMonitor::new() {
+        Ok(monitor) => {
+            info!("Starting network monitor");
+            let icon = monitor.update_status();
+            match out_chan.send(icon.clone()) {
+                Ok(_) => info!("Sent initial network icon: {}", icon.clone()),
+                Err(err) => error!("Could not send network initial icon: {} - {}", icon, err)
+            }
+            monitor.run(out_chan);
+        },
+        Err(err) => {
+            error!("Could not start network monitor: {:?}", err);
+        }
     }
-    monitor.run(out_chan);
 }
