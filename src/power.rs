@@ -1,6 +1,8 @@
 use dbus::Connection;
 use dbus::BusType;
 use dbus::arg::RefArg;
+use dbus::Error;
+
 use std::rc::Rc;
 use tokio_core::reactor::Core;
 use futures::{Stream};
@@ -24,13 +26,18 @@ pub struct PowerMonitor {
 }
 
 impl PowerMonitor {
-    pub fn new() -> PowerMonitor {
-        let c = Rc::new(Connection::get_private(BusType::System).unwrap());
-        PowerMonitor {
-            conn: c
+    pub fn new() -> Result<PowerMonitor, Error> {
+        match Connection::get_private(BusType::System) {
+            Ok(c) => { 
+                Ok(PowerMonitor {
+                    conn: Rc::new(c)
+                })
+            },
+            Err(err) => {
+                Err(err)
+            }
         }
     }
-    
     fn get_state(&self) -> Option<i64> {
         let c_path = self.conn.with_path(
             "org.freedesktop.UPower", 
@@ -43,50 +50,58 @@ impl PowerMonitor {
         }
     }
 
-    fn get_percentage(&self) -> i64 {
+    fn get_percentage(&self) -> Option<i64> {
         let c_path = self.conn.with_path(
         "org.freedesktop.UPower", "/org/freedesktop/UPower/devices/DisplayDevice", 5000);
-        let percentage = c_path.get_percentage().unwrap();
-        return percentage.round() as i64
+        match c_path.get_percentage() {
+            Ok(percentage) => {
+                return Some(percentage.round() as i64)
+            },
+            Err(err) => {
+                error!("Could not get battery percentage: {:?}",
+                    err);
+                return None
+            }
+        }
     }
 
     pub fn update_status(&self) -> String {
         if let Some(state) = self.get_state() {
-            let percentage = self.get_percentage();
-            match state {
-                FULLY_CHARGED => {
-                    return String::from("battery-full-charged-symbolic");
-                },
-                CHARGING => { 
-                    match percentage {
-                        98 ... 100 => return String::from("battery-full-charging-symbolic"),
-                        40 ... 97 => return String::from("battery-good-charging-symbolic"),
-                        21 ... 39 => return String::from("battery-medium-charging-symbolic"),
-                        5 ... 20 => return String::from("battery-low-charging-symbolic"),
-                        0 ... 4 => return String::from("battery-caution-charging-symbolic"),
-                        _ => return String::from("battery-symbolic")
+            if let Some(percentage) = self.get_percentage() {
+                match state {
+                    FULLY_CHARGED => {
+                        return String::from("battery-full-charged-symbolic");
+                    },
+                    CHARGING => { 
+                        match percentage {
+                            98 ... 100 => return String::from("battery-full-charging-symbolic"),
+                            40 ... 97 => return String::from("battery-good-charging-symbolic"),
+                            21 ... 39 => return String::from("battery-medium-charging-symbolic"),
+                            5 ... 20 => return String::from("battery-low-charging-symbolic"),
+                            0 ... 4 => return String::from("battery-caution-charging-symbolic"),
+                            _ => return String::from("battery-symbolic")
+                        }
+                    },
+                    DISCHARGING => {
+                        match percentage {
+                            98 ... 100 => return String::from("battery-full-charged-symbolic"),
+                            40 ... 97 => return String::from("battery-good-symbolic"),
+                            21 ... 39 => return String::from("battery-mediun-symbolic"),
+                            5 ... 20 => return String::from("battery-low-symbolic"),
+                            0 ... 4 => return String::from("battery-caution-symbolic"),
+                            _ => return String::from("battery-symbolic")
+                        }
+                    },
+                    EMPTY => {
+                        return String::from("battery-empty-symbolic")
                     }
-                },
-                DISCHARGING => {
-                    match percentage {
-                        98 ... 100 => return String::from("battery-full-charged-symbolic"),
-                        40 ... 97 => return String::from("battery-good-symbolic"),
-                        21 ... 39 => return String::from("battery-mediun-symbolic"),
-                        5 ... 20 => return String::from("battery-low-symbolic"),
-                        0 ... 4 => return String::from("battery-caution-symbolic"),
-                        _ => return String::from("battery-symbolic")
+                    UNKNOWN | PENDING_DISCHARGE | PENDING_CHARGE | _ => { 
+                        return String::from("battery-missing-symbolic")
                     }
-                },
-                EMPTY => {
-                    return String::from("battery-empty-symbolic")
-                }
-                UNKNOWN | PENDING_DISCHARGE | PENDING_CHARGE | _ => { 
-                    return String::from("battery-missing-symbolic")
                 }
             }
-        } else {
-            return String::from("battery-symbolic")
         }
+        return String::from("battery-symbolic")
         
     }
 
@@ -98,12 +113,13 @@ impl PowerMonitor {
         let messages = aconn.messages().unwrap();
         let signals = messages.for_each(|m| {
             let headers = m.headers();
-            let member = headers.3.unwrap();
-            if member == "PropertiesChanged" {
-                let icon = self.update_status();
-                match out_chan.send(icon.clone()) {
-                    Ok(_) => info!("Sent icon: {}", icon),
-                    Err(err) => error!("Could not send icon: {} - {}", icon, err)
+            if let Some(member) = headers.3 {
+                if member == "PropertiesChanged" {
+                    let icon = self.update_status();
+                    match out_chan.send(icon.clone()) {
+                        Ok(_) => info!("Sent icon: {}", icon),
+                        Err(err) => error!("Could not send icon: {} - {}", icon, err)
+                    }
                 }
             }
             Ok(())
@@ -113,12 +129,18 @@ impl PowerMonitor {
 }
 
 pub fn monitor_power<'a>(out_chan: Sender<String>) {
-    let monitor = PowerMonitor::new();
-    info!("Starting power monitor");
-    let icon = monitor.update_status();
-    match out_chan.send(icon.clone()) {
-        Ok(_) => info!("Sent initial icon: {}", icon.clone()),
-        Err(err) => error!("Could not send initial icon: {} - {}", icon, err)
+    match PowerMonitor::new() {
+        Ok(monitor) => {
+            info!("Starting power monitor");
+            let icon = monitor.update_status();
+            match out_chan.send(icon.clone()) {
+                Ok(_) => info!("Sent initial icon: {}", icon.clone()),
+                Err(err) => error!("Could not send initial icon: {} - {}", icon, err)
+            }
+            monitor.run(out_chan);
+        },
+        Err(err) => {
+            error!("Could not start power monitor: {:?}", err);
+        }
     }
-    monitor.run(out_chan);
 }
