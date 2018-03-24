@@ -142,6 +142,12 @@ impl NetworkMonitor {
                 error!("Network monitor could not add dbus match: {:?}", err);
                 return
         }
+        if let Err(err) = self.conn.add_match(
+            "type=signal,sender=org.freedesktop.NetworkManager,path=/org/freedesktop/NetworkManager,member=PropertiesChanged")
+        {
+                error!("Network monitor could not add dbus match: {:?}", err);
+                return
+        }
         let mut core = Core::new().unwrap();
         let aconn = AConnection::new(self.conn.clone(), core.handle()).unwrap();
         let messages = aconn.messages().unwrap();
@@ -149,7 +155,7 @@ impl NetworkMonitor {
             info!("Incoming signal: {:?}", m);
             let headers = m.headers();
             if let Some(member) = headers.3 {
-                if member == "StateChanged" {
+                if member == "StateChanged" || member == "PropertiesChanged" {
                     let icon = self.update_status();
                     match out_chan.send(icon.clone()) {
                         Ok(_) => info!("Sent network icon: {}", icon),
