@@ -3,7 +3,10 @@ use std::mem::transmute;
 use std::mem::forget;
 use std::os::raw::{c_void};
 use std::ptr;
-
+use std::error;
+use std::fmt;
+use std::time::Duration;
+use std::thread::sleep;
 
 use pulse::context::Context;
 use pulse::context::ContextInternal;
@@ -28,15 +31,47 @@ pub struct VolumeMonitor {
     mainloop: Mainloop 
 }
 
+#[derive(Debug, Clone)]
+pub struct VolumeMonitorError{
+    details: String
+}
+
+impl VolumeMonitorError {
+    fn new(msg: &str) -> VolumeMonitorError {
+        VolumeMonitorError{details: msg.to_string()}
+    }
+}
+
+impl fmt::Display for VolumeMonitorError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.details)
+    }
+}
+
+impl error::Error for VolumeMonitorError {
+    fn description(&self) -> &str {
+        &self.details
+    }
+}
+
 impl VolumeMonitor {
-    pub fn new() -> VolumeMonitor {
+    pub fn new() -> Result<VolumeMonitor, VolumeMonitorError> {
         let m = Mainloop::new().unwrap();
-        let c = Context::new(m.get_api(), "sgstatusContext").unwrap();
-        c.connect(None, flags::NOAUTOSPAWN, None).unwrap();
-        VolumeMonitor {
-            context: c,
-            mainloop: m
+        let delay = Duration::from_millis(200);
+        for i in 0..10 {
+            let c = Context::new(m.get_api(), "sgstatusContext").unwrap();
+            match c.connect(None, flags::NOAUTOSPAWN, None) {
+                Ok(_) => {
+                        return Ok(VolumeMonitor {
+                            context: c,
+                            mainloop: m
+                        })
+                },
+                Err(_) => error!("Could not connect to pulse on attempt: {:?}", i+1)
+            }
+            sleep(delay);
         }
+        return Err(VolumeMonitorError::new("pulse connection failed, gave up"))
     }
 
     pub fn update_status(&self) {
@@ -188,7 +223,13 @@ pub fn send_icon(icon: String) {
 }
 
 pub fn monitor_volume<'a>() {
-    let monitor = VolumeMonitor::new();
-    info!("Starting volume monitor");
-    monitor.run();
+    match VolumeMonitor::new() {
+        Ok(monitor) => {
+            info!("Starting volume monitor");
+            monitor.run();
+        },
+        Err(err) => {
+            error!("Could not start volume monitor: {:?}", err);
+        }
+    }
 }
