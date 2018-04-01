@@ -86,7 +86,7 @@ impl PowerMonitor {
                         match percentage {
                             98 ... 100 => return String::from("battery-full-charged-symbolic"),
                             40 ... 97 => return String::from("battery-good-symbolic"),
-                            21 ... 39 => return String::from("battery-mediun-symbolic"),
+                            21 ... 39 => return String::from("battery-medium-symbolic"),
                             5 ... 20 => return String::from("battery-low-symbolic"),
                             0 ... 4 => return String::from("battery-caution-symbolic"),
                             _ => return String::from("battery-symbolic")
